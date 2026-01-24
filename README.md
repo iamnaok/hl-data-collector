@@ -107,7 +107,7 @@ Edit `src/config.py` or set environment variables:
 
 ## Related Projects
 
-- [hl-trading-bot](https://github.com/user/hl-trading-bot) - Trading signals using this data
+- [hl-trading-bot](https://github.com/iamnaok/hl-trading-bot) - Trading signals using this data
 
 ## License
 
