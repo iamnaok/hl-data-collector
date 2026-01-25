@@ -46,6 +46,7 @@ app.add_middleware(
 
 # Cache
 _market_data_cache = {}
+_cache_lock = asyncio.Lock()
 _market_data_timestamp = None
 
 
@@ -61,18 +62,19 @@ def load_json_file(filepath: str) -> dict:
 
 
 async def get_cached_market_data() -> Dict:
-    """Get market data with caching (refresh every 30s)"""
+    """Get market data with caching (refresh every 30s) - with lock to prevent race conditions"""
     global _market_data_cache, _market_data_timestamp
-    
-    now = datetime.now(timezone.utc)
-    if _market_data_timestamp is None or (now - _market_data_timestamp).seconds > 30:
-        try:
-            data = await get_market_data(include_liquidity=True)
-            _market_data_cache = {coin: d.to_dict() for coin, d in data.items()}
-            _market_data_timestamp = now
-        except Exception as e:
-            print(f"Error fetching market data: {e}")
-    
+
+    async with _cache_lock:
+        now = datetime.now(timezone.utc)
+        if _market_data_timestamp is None or (now - _market_data_timestamp).seconds > 30:
+            try:
+                data = await get_market_data(include_liquidity=True)
+                _market_data_cache = {coin: d.to_dict() for coin, d in data.items()}
+                _market_data_timestamp = now
+            except Exception as e:
+                print(f"Error fetching market data: {e}")
+
     return _market_data_cache
 
 
@@ -487,13 +489,44 @@ async def get_prices():
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
-    liq_data = load_json_file(config.LIQUIDATION_MAP_FILE)
-    return {
-        "status": "healthy",
-        "assets_tracked": len(liq_data),
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
+    """
+    Detailed health check with data freshness monitoring
+    """
+    import os
+    
+    try:
+        liq_file = config.LIQUIDATION_MAP_FILE
+        liq_data = load_json_file(liq_file)
+        
+        liq_file_age = float('inf')
+        liq_last_update = None
+        
+        if os.path.exists(liq_file):
+            liq_last_update = datetime.fromtimestamp(
+                os.path.getmtime(liq_file),
+                tz=timezone.utc
+            )
+            liq_file_age = (datetime.now(timezone.utc) - liq_last_update).total_seconds()
+        
+        # Health status based on data freshness
+        if liq_file_age < 600:  # <10 min = healthy
+            status = 'healthy'
+        elif liq_file_age < 1800:  # <30 min = degraded
+            status = 'degraded'
+        else:
+            status = 'unhealthy'
+        
+        return {
+            'status': status,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'assets_tracked': len(liq_data),
+            'data_freshness': {
+                'last_update': liq_last_update.isoformat() if liq_last_update else None,
+                'age_seconds': int(liq_file_age) if liq_file_age != float('inf') else None,
+            }
+        }
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
 
 
 if __name__ == "__main__":
