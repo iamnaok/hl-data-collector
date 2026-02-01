@@ -330,6 +330,141 @@ Full list available via `/api/prices` response keys.
 
 ---
 
+---
+
+# Apex Exchange Endpoints
+
+Apex doesn't expose individual positions publicly, so **no liquidation cluster data** is available. We collect market data (prices, OI, funding, order book).
+
+### GET /api/apex/market-data
+
+Get market data from Apex Exchange for top 50 symbols.
+
+**Response:**
+```json
+{
+  "BTCUSDT": {
+    "ticker": {
+      "symbol": "BTCUSDT",
+      "last_price": 79029.0,
+      "mark_price": 79029.0,
+      "index_price": 79010.5,
+      "open_interest": 1571.83,
+      "open_interest_usd": 124129772.0,
+      "volume_24h": 7522.0,
+      "volume_24h_usd": 606334092.0,
+      "funding_rate": 0.0000125,
+      "predicted_funding_rate": 0.0000125,
+      "next_funding_time": "2026-02-01T05:00:00Z",
+      "price_change_24h_pct": -6.09,
+      "high_24h": 84132.3,
+      "low_24h": 75708.9
+    },
+    "orderbook": {
+      "symbol": "BTCUSDT",
+      "best_bid": 79028.0,
+      "best_ask": 79029.0,
+      "spread_pct": 0.0013,
+      "bid_depth_1_pct": 4504921.0,
+      "ask_depth_1_pct": 5392818.0,
+      "imbalance_1_pct": -0.0897
+    },
+    "source": "apex"
+  },
+  ...
+}
+```
+
+---
+
+### GET /api/apex/ticker/{symbol}
+
+Get ticker and orderbook for a single Apex symbol.
+
+**Example:** `GET /api/apex/ticker/BTC` or `GET /api/apex/ticker/BTCUSDT`
+
+---
+
+### GET /api/apex/symbols
+
+Get list of all Apex perpetual symbols.
+
+**Response:**
+```json
+{
+  "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT", ...],
+  "count": 130
+}
+```
+
+---
+
+### GET /api/apex/funding/{symbol}
+
+Get historical funding rates for a symbol.
+
+**Example:** `GET /api/apex/funding/BTC?limit=50`
+
+---
+
+# Combined Multi-Exchange Endpoints
+
+### GET /api/combined/market-data
+
+Get market data from **both** Hyperliquid and Apex, merged by coin.
+
+**Response:**
+```json
+{
+  "BTC": {
+    "hyperliquid": {
+      "coin": "BTC",
+      "mark_price": 78968.0,
+      "funding_rate": 0.0000125,
+      ...
+    },
+    "apex": {
+      "ticker": {
+        "symbol": "BTCUSDT",
+        "last_price": 79029.0,
+        "funding_rate": 0.0000125,
+        ...
+      },
+      "orderbook": {...}
+    }
+  },
+  ...
+}
+```
+
+---
+
+### GET /api/combined/funding
+
+Compare funding rates between Hyperliquid and Apex. Sorted by spread (arbitrage opportunity).
+
+**Response:**
+```json
+{
+  "comparisons": [
+    {
+      "coin": "SOL",
+      "hyperliquid_funding": 0.0000125,
+      "hyperliquid_annualized": 13.69,
+      "apex_funding": -0.0000207,
+      "apex_annualized": -22.67,
+      "spread": 0.00332
+    },
+    ...
+  ],
+  "count": 45
+}
+```
+
+**Use case:** Find funding arbitrage opportunities where you can long on one exchange and short on another to collect the funding spread.
+
+---
+
 ## Source Code
 
 GitHub: https://github.com/iamnaok/hl-data-collector

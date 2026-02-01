@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.config import config
 from src.hyperliquid_api import get_current_prices
 from src.market_data import get_market_data
+from src.apex_client import ApexClient, collect_apex_data
 
 app = FastAPI(
     title="Hyperliquid Data Collector",
@@ -527,6 +528,162 @@ async def health_check():
         }
     except Exception as e:
         return {'status': 'error', 'message': str(e)}
+
+
+# ============================================================================
+# APEX EXCHANGE ENDPOINTS
+# ============================================================================
+
+# Cache for Apex data
+_apex_cache: Dict = {}
+_apex_cache_time: Optional[datetime] = None
+_apex_cache_lock = asyncio.Lock()
+APEX_CACHE_TTL = 60  # seconds
+
+
+async def get_cached_apex_data() -> Dict:
+    """Get Apex market data with caching"""
+    global _apex_cache, _apex_cache_time
+    
+    async with _apex_cache_lock:
+        now = datetime.now(timezone.utc)
+        
+        if _apex_cache_time and (now - _apex_cache_time).total_seconds() < APEX_CACHE_TTL:
+            return _apex_cache
+        
+        try:
+            _apex_cache = await collect_apex_data()
+            _apex_cache_time = now
+            return _apex_cache
+        except Exception as e:
+            print(f"Error fetching Apex data: {e}")
+            return _apex_cache or {}
+
+
+@app.get("/api/apex/market-data")
+async def get_apex_market_data():
+    """
+    Get market data from Apex Exchange.
+    
+    Returns ticker and orderbook data for top symbols.
+    Note: Apex doesn't expose individual positions, so no liquidation data.
+    """
+    return await get_cached_apex_data()
+
+
+@app.get("/api/apex/ticker/{symbol}")
+async def get_apex_ticker(symbol: str):
+    """Get ticker data for a single Apex symbol"""
+    symbol = symbol.upper()
+    if not symbol.endswith("USDT"):
+        symbol = f"{symbol}USDT"
+    
+    async with ApexClient() as client:
+        ticker = await client.get_ticker(symbol)
+        if not ticker:
+            raise HTTPException(status_code=404, detail=f"No data for {symbol}")
+        
+        orderbook = await client.get_orderbook(symbol)
+        
+        return {
+            "ticker": ticker.to_dict(),
+            "orderbook": orderbook.to_dict() if orderbook else None,
+            "source": "apex"
+        }
+
+
+@app.get("/api/apex/symbols")
+async def get_apex_symbols():
+    """Get list of all Apex perpetual symbols"""
+    async with ApexClient() as client:
+        symbols = await client.get_symbols()
+        return {"symbols": symbols, "count": len(symbols)}
+
+
+@app.get("/api/apex/funding/{symbol}")
+async def get_apex_funding_history(symbol: str, limit: int = 100):
+    """Get historical funding rates for a symbol"""
+    symbol = symbol.upper()
+    if not symbol.endswith("USDT"):
+        symbol = f"{symbol}USDT"
+    
+    async with ApexClient() as client:
+        history = await client.get_funding_history(symbol, limit)
+        return {"symbol": symbol, "history": history}
+
+
+# ============================================================================
+# COMBINED MULTI-EXCHANGE ENDPOINTS  
+# ============================================================================
+
+@app.get("/api/combined/market-data")
+async def get_combined_market_data():
+    """
+    Get market data from both Hyperliquid and Apex.
+    
+    Useful for comparing funding rates, OI, and liquidity across exchanges.
+    """
+    hl_data = await get_cached_market_data()
+    apex_data = await get_cached_apex_data()
+    
+    # Merge by base symbol
+    combined = {}
+    
+    # Add Hyperliquid data
+    for coin, data in hl_data.items():
+        combined[coin] = {
+            "hyperliquid": data,
+            "apex": None
+        }
+    
+    # Add Apex data (convert BTCUSDT -> BTC)
+    for symbol, data in apex_data.items():
+        coin = symbol.replace("USDT", "")
+        if coin in combined:
+            combined[coin]["apex"] = data
+        else:
+            combined[coin] = {
+                "hyperliquid": None,
+                "apex": data
+            }
+    
+    return combined
+
+
+@app.get("/api/combined/funding")
+async def get_combined_funding():
+    """
+    Compare funding rates between Hyperliquid and Apex.
+    
+    Returns funding rate comparison for symbols available on both exchanges.
+    """
+    hl_data = await get_cached_market_data()
+    apex_data = await get_cached_apex_data()
+    
+    comparison = []
+    
+    for coin, hl in hl_data.items():
+        apex_symbol = f"{coin}USDT"
+        apex = apex_data.get(apex_symbol, {})
+        
+        hl_funding = hl.get("funding_rate", 0)
+        apex_ticker = apex.get("ticker", {})
+        apex_funding = apex_ticker.get("funding_rate", 0) if apex_ticker else None
+        
+        if apex_funding is not None:
+            comparison.append({
+                "coin": coin,
+                "hyperliquid_funding": hl_funding,
+                "hyperliquid_annualized": hl_funding * 3 * 365 * 100,
+                "apex_funding": apex_funding,
+                "apex_annualized": apex_funding * 3 * 365 * 100,
+                "spread": (hl_funding - apex_funding) * 100 if apex_funding else None
+            })
+    
+    # Sort by spread (arbitrage opportunity)
+    comparison.sort(key=lambda x: abs(x.get("spread", 0) or 0), reverse=True)
+    
+    return {"comparisons": comparison, "count": len(comparison)}
 
 
 if __name__ == "__main__":
