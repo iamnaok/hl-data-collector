@@ -127,7 +127,7 @@ async def run_once(verbose: bool = True):
 def main():
     parser = argparse.ArgumentParser(description="Hyperliquid Liquidation Data Collector")
     parser.add_argument("--continuous", action="store_true", help="Run continuously")
-    parser.add_argument("--interval", type=int, default=300, help="Collection interval in seconds (default: 300)")
+    parser.add_argument("--interval", type=int, default=900, help="Collection interval in seconds (default: 900 = 15 min)")
     parser.add_argument("--quiet", action="store_true", help="Minimal output")
     
     args = parser.parse_args()
