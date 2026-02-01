@@ -304,9 +304,10 @@ Example: To find a potential short squeeze, look for:
 
 ## Data Update Frequency
 
-- **Liquidation data**: Updated every 5 minutes
+- **Liquidation data**: Updated every 15 minutes
 - **Market data**: Cached for 60 seconds, then refreshed
 - **Prices**: Real-time from Hyperliquid API
+- **Apex data**: Fetched on-demand, cached for 60 seconds
 
 ---
 

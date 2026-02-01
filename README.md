@@ -38,6 +38,8 @@ Hyperliquid API
 
 ## API Endpoints
 
+**Hyperliquid (primary):**
+
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/liquidations` | All liquidation maps by asset |
@@ -45,6 +47,23 @@ Hyperliquid API
 | `GET /api/asset/{coin}` | Complete data for single asset |
 | `GET /api/prices` | Current mark prices |
 | `GET /api/health` | Health check |
+
+**Apex Exchange:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/apex/market-data` | Apex tickers for top 50 symbols |
+| `GET /api/apex/ticker/{symbol}` | Single symbol ticker + orderbook |
+| `GET /api/apex/symbols` | List of 130 Apex perpetual symbols |
+
+**Cross-Exchange:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/combined/market-data` | Merged HL + Apex data by coin |
+| `GET /api/combined/funding` | Funding rate comparison (arbitrage finder) |
+
+See [API.md](API.md) for full documentation.
 
 ## Installation
 
@@ -61,9 +80,9 @@ pip install -r requirements.txt
 python collector.py
 ```
 
-**Run collector continuously (every 5 min):**
+**Run collector continuously (every 15 min):**
 ```bash
-python collector.py --continuous --interval 300
+python collector.py --continuous --interval 900
 ```
 
 **Start API server:**
@@ -80,8 +99,29 @@ Edit `src/config.py` or set environment variables:
 |----------|---------|-------------|
 | `API_HOST` | `0.0.0.0` | API bind address |
 | `API_PORT` | `8001` | API port |
-| `SCAN_INTERVAL` | `300` | Seconds between scans |
+| `SCAN_INTERVAL` | `900` | Seconds between scans (15 min) |
 | `TOP_ASSETS` | `['BTC', 'ETH', 'SOL']` | Priority assets to scan |
+
+## Data Storage
+
+Historical data is stored in SQLite with zlib compression:
+
+| File | Description |
+|------|-------------|
+| `data/historical.db` | SQLite database with snapshots and price history |
+| `data/liquidation_map.json` | Current liquidation clusters (updated every 15 min) |
+| `data/wallets.json` | Discovered whale wallets |
+
+**Compression:** The `clusters_json` column is compressed with zlib (~64% reduction), reducing storage from ~50 MB/day to ~10 MB/day.
+
+**Maintenance scripts:**
+```bash
+# Analyze database size and composition
+python scripts/db_maintenance.py --analyze --db data/historical.db
+
+# Compress existing uncompressed data (one-time migration)
+python scripts/migrate_compress.py --db data/historical.db
+```
 
 ## Data Format
 
