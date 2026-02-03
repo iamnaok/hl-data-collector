@@ -41,13 +41,16 @@ async def run_collection_cycle(storage: HistoricalStorage, verbose: bool = True)
     discovery = WalletDiscovery()
     discovery.load_from_file()
     
-    if len(discovery.active_wallets) < 50:
-        if verbose:
-            print("  Discovering wallets...")
-        await discovery.backfill_from_recent_trades(config.ASSETS[:10])
-        discovery.save_to_file()
-    
+    # Get fresh wallets (seen in last 24h)
     wallets = discovery.get_wallets(max_age_hours=24)
+    
+    # Auto-refresh if too few fresh wallets
+    if len(wallets) < 50:
+        if verbose:
+            print(f"  Only {len(wallets)} fresh wallets, refreshing...")
+        await discovery.backfill_from_recent_trades(config.ASSETS[:15])
+        discovery.save_to_file()
+        wallets = discovery.get_wallets(max_age_hours=24)
     
     if verbose:
         print(f"  Scanning {len(wallets)} wallets...")
